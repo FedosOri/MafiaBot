@@ -4,11 +4,15 @@ import csv
 import random
 from data.player import Player
 from data.users import User
+from data.vars_for_mafia import Var
 from data import helpik, config, db_session
 
 
-db_session.global_init("db/playbot.db")
+# db_session.global_init("db/mafia.db")
+db_session.global_init("ColdBase")
 bot = telebot.TeleBot(config.token)
+
+log = False
 game = ''
 last_sms = ''
 checkpoint = 0
@@ -57,6 +61,8 @@ def welcome(message):
     bot.send_message(message.chat.id, "Если Вы не зарегистрировались, можете это сделать. Либо войдите в свой аккаунт"
                                       .format(message.from_user, bot.get_me()), reply_markup=markup)
 
+    # helpik.data_reset()
+
 
 @bot.message_handler(commands=['balance'])
 def goodbye(message):
@@ -73,10 +79,59 @@ def goodbye(message):
     earnings = 0
 
 
-@bot.message_handler(commands=["regulations"])
-def regulations(message):
-    ...
-    #  вывод правил
+@bot.message_handler(commands=["info"])
+def description(message):
+    file = open('data/description.txt', 'r', encoding='utf-8')
+    mes = file.readlines()
+    bot.send_message(message.chat.id, "".join(mes), parse_mode="Markdown")
+
+
+@bot.message_handler(commands=["data"])
+def for_admin(message):
+    mes = message.text.split()
+    if len(mes) > 1 and message.from_user.username in config.super_admins:
+        if mes[1] == "all0":
+            helpik.data_admin("all0")
+            mes = "готово"
+        elif mes[1] == "u1":
+            users = [u.name for u in helpik.data_admin("u1")]
+            mes = "пользователи:\n"
+            for u in users:
+                mes += u + "\n"
+        elif mes[1] == "u0":
+            helpik.data_admin("u0")
+            mes = "готово"
+        elif mes[1] == "p1":
+            players = [p.name for p in helpik.data_admin("p1")]
+            mes = "игроки:\n"
+            for p in players:
+                mes += p + "\n"
+        elif mes[1] == "p0":
+            helpik.data_admin("p0")
+            mes = "готово"
+        elif mes[1] == "v1":
+            vars = [v.name for v in helpik.data_admin("v1")]
+            mes = "значения:\n"
+            for v in vars:
+                mes += v + "\n"
+        elif mes[1] == "v0":
+            helpik.data_admin("v0")
+            mes = "готово"
+        elif mes[1] == "pv0":
+            helpik.data_reset()
+            mes = "готово"
+        else:
+            mes = "all0 - сбросить все\n" \
+                  "\n" \
+                  "u1 - вывести всех пользователей\n" \
+                  "u0 - сбросить пользователей\n" \
+                  "\n" \
+                  "p1 - вывести всех игроков\n" \
+                  "p0 - сбросить игроков\n" \
+                  "\n" \
+                  "v1 - вывести все значения\n" \
+                  "v0 - сбросить значения\n"
+        bot.send_message(message.chat.id, mes)
 
 
 @bot.message_handler(commands=["players"])
@@ -112,22 +167,25 @@ def join(message):
         if name_for_add not in players:
             db_sess = db_session.create_session()
             player = Player()
+            if name_for_add is None:
+                mes = f"Чтобы присоединиться, создайте имя пользователя в настройках тг."
+                bot.send_message(message.chat.id, mes)
             player.name = name_for_add
             player.chat_id = message.chat.id
             db_sess.add(player)
             db_sess.commit()
 
-            mes = f"Вы добывлены.\nВот ссылка на комнату {config.channel}, если вас там еще нет."
+            mes = f"Вы добавлены.\nВот ссылка на комнату {config.channel}, если вас там еще нет."
             bot.send_message(message.chat.id, mes)
 
             if check_admin(message.from_user.username):
-                mes = f"Игрок @{name_for_add}(админ) присоеденился к игре."
+                mes = f"Игрок @{name_for_add}(админ) присоединился к игре."
                 bot.send_message(config.channel, mes)
             else:
-                mes = f"Игрок @{name_for_add} присоеденился к игре."
+                mes = f"Игрок @{name_for_add} присоединился к игре."
                 bot.send_message(config.channel, mes)
         else:
-            mes = f"Мне кажется, что вы уже присоеденились."
+            mes = f"Мне кажется, что вы уже присоединились."
             bot.send_message(message.chat.id, mes)
     else:
         mes = "Игра запущена!"
@@ -149,13 +207,13 @@ def game(message):
             peaceful = []
             players_n = len(players)
 
-            if players_n <= 0:
+            if players_n <= 2:
                 mes = "Игроков слишком мало для начала игры!"
                 bot.send_message(config.channel, mes)
             else:
                 random.shuffle(players)
                 doctor.append(players[0])
-                mafia.append(players[1])
+                commissar.append(players[1])
                 if players_n <= 5:
                     mafia.append(players[2])
                     for player in players[3:]:
@@ -333,7 +391,7 @@ def communication(message):
                           "\nКоманды для всех:" \
                           "\n/join" \
                           "\n/players" \
-                          "\n/regulations"
+                          "\n/info"
             bot.send_message(message.chat.id, welcome_mes)
             situation = "mafia"
 
@@ -774,7 +832,7 @@ def communication(message):
                 stop_vote = True
 
                 for player in helpik.get_all_players():
-                    if not player.voted:
+                    if not player.voted and player.alive:
                         stop_vote = False
                         break
 
@@ -822,7 +880,7 @@ def communication(message):
                     if mafia_n == 0:
                         victory("peaceful")
                         return
-                    elif not_mafia_n == 0:
+                    elif not_mafia_n <= 0:
                         victory("mafia")
                         return
 
@@ -839,7 +897,7 @@ def communication(message):
                         bot.send_message(super_mafia.chat_id, mes)
                     else:
                         mafia = db_sess.query(Player).filter(Player.role == "mafia", Player.alive is True).first()
-                        mes = "Мафия, напишите мне в личные сообщения вашу цель."
+                        mes = "Мафия просыпается. Мафия, напишите мне в личные сообщения вашу цель."
                         bot.send_message(config.channel, mes)
 
                     var_dict["mafia_time"] = "True"
@@ -864,12 +922,19 @@ def communication(message):
                                 mes = "Мафия выбрала жертву."
                                 bot.send_message(config.channel, mes)
 
-                                mes = "Доктор, напишите мне в личные сообщения имя пациента."
-                                bot.send_message(config.channel, mes)
+                                db_sess = db_session.create_session()
+                                doctor = db_sess.query(Player).filter(Player.role == "doctor").first()
 
-                                var_dict["target"] = message.text
-                                var_dict["doctor_time"] = "True"
+                                if doctor.alive:
+                                    mes = "Доктор просыпается. Доктор, напишите мне в личные сообщения имя пациента."
+                                    bot.send_message(config.channel, mes)
+                                    var_dict["doctor_time"] = "True"
+                                else:
+                                    mes = "Доктор уже мертв... Комиссар, напишите мне в личные сообщения имя подозреваемого."
+                                    bot.send_message(config.channel, mes)
+                                    var_dict["commissar_time"] = "True"
                                 var_dict["mafia_time"] = ""
+                                var_dict["target"] = message.text
                                 helpik.save_all_vars(var_dict)
                             else:
                                 mes = "Вы не можете вальнуть себя!"
@@ -891,18 +956,62 @@ def communication(message):
                             if var_dict["target"] == message.text:
                                 var_dict["target"] = ""
 
-                            mes = "Комиссар, напишите мне в личные сообщения имя подозреваемого."
-                            bot.send_message(config.channel, mes)
+                            db_sess = db_session.create_session()
+                            commissar = db_sess.query(Player).filter(Player.role == "commissar").first()
+
+                            if commissar.alive:
+                                mes = "Комиссар просыпается. Комиссар, напишите мне в личные сообщения имя подозреваемого."
+                                bot.send_message(config.channel, mes)
+                                var_dict["commissar_time"] = "True"
+                                var_dict["doctor_time"] = ""
+                                helpik.save_all_vars(var_dict)
+                            else:
+                                mes = "Комиссар уже мертв..."
+                                bot.send_message(config.channel, mes)
+
+                                mes = f"День {var_dict['day_n']}.\nГород просыпается."
+                                bot.send_message(config.channel, mes)
+
+                                if var_dict["target"]:
+                                    mes = "Сегодня ночью был убит @" + var_dict["target"] + "."
+                                    bot.send_message(config.channel, mes)
+
+                                    db_sess = db_session.create_session()
+                                    db_sess.query(Player).filter(Player.name == var_dict["target"]).update(
+                                        {Player.alive: False})
+                                    db_sess.commit()
+
+                                    not_mafia_n = 0
+                                    players = helpik.get_all_players()
+                                    for m in players:
+                                        if m.role != "mafia" and m.alive:
+                                            not_mafia_n += 1
+                                    if not_mafia_n <= 0:
+                                        victory("mafia")
+                                        return
+                                else:
+                                    mes = "Сегодня никто не пострадал!"
+                                    bot.send_message(config.channel, mes)
+
+                                mes = "Пришло время обсудить прошедшую ночь. " \
+                                      "Когда будете готовы отправьте /stop_discussion."
+                                bot.send_message(config.channel, mes)
+
+                                var_dict["night"] = ""
+                                var_dict["discussion"] = "True"
+                                var_dict["target"] = ""
+                                var_dict["day_n"] = str(int(var_dict["day_n"]) + 1)
+                                helpik.save_all_vars(var_dict)
+
                         else:
                             mes = "Такого игрока нет!"
                             bot.send_message(config.channel, mes)
-                    var_dict["commissar_time"] = "True"
-                    var_dict["doctor_time"] = ""
-                    helpik.save_all_vars(var_dict)
 
                 elif var_dict["commissar_time"] and player.role == "commissar":
                     players = [player.name for player in helpik.get_all_players()]
                     if message.text in players:
+                        db_sess = db_session.create_session()
+                        commissar = db_sess.query(Player).filter(Player.role == "commissar").first()
                         if player.alive:
                             mes = "Комиссар сделал свой выбор."
                             bot.send_message(config.channel, mes)
@@ -931,7 +1040,7 @@ def communication(message):
                             for m in players:
                                 if m.role != "mafia" and m.alive:
                                     not_mafia_n += 1
-                            if not_mafia_n == 0:
+                            if not_mafia_n <= 0:
                                 victory("mafia")
                                 return
                         else:
@@ -999,4 +1108,5 @@ def victory(who_vin):
     helpik.data_reset()
 
 
-bot.polling(none_stop=True)  # RUN
+bot.polling()  # RUN
+
