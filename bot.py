@@ -8,8 +8,7 @@ from data.vars_for_mafia import Var
 from data import helpik, config, db_session
 
 
-# db_session.global_init("db/mafia.db")
-db_session.global_init("ColdBase")
+db_session.global_init("db/theplaybot.db")
 bot = telebot.TeleBot(config.token)
 
 log = False
